@@ -1,5 +1,4 @@
 #!/bin/bash
-set -euo pipefail
 
 if [ $(id -u) = 0 ]; then
    echo "This script changes your users gsettings and should thus not be run as root!"
@@ -7,22 +6,8 @@ if [ $(id -u) = 0 ]; then
    exit 1
 fi
 
-
-while test $# -gt 0
-do
-    case "$1" in
-        --nonfree)
-			echo "Nonfree Additions will be added"
-			NONFREE=true
-            ;;
-        --steam)
-#			echo "Adding Steam as flatpak to avoid fedora lib misaligment issues for games"
-#			STEAMFLAT=true
-#            ;;
-    esac
-    shift
-done
-
+echo "Nonfree Additions will be added"
+NONFREE=true
 
 ###
 # Optionally clean all dnf temporary files
@@ -138,6 +123,7 @@ tilix `#The best terminal manager i know of` \
 tilix-nautilus `#Adds right click open in tilix to nautilus` \
 transmission `#Torrent Client` \
 tuned `#Tuned can optimize your performance according to metrics. tuned-adm profile powersave can help you on laptops, alot` \
+tuned-utils `# utils for tuned` \ 
 unar `#free rar decompression` \
 virt-manager `#A gui to manage virtual machines` \
 wavemon `#a cli wifi status tool` \
@@ -153,10 +139,17 @@ nload `#Network Load Monitor` \
 tig `#cli git tool` \
 vim-enhanced `#full vim` \
 zsh `#Best shell` \
+util-linux-user `# Provides chsh` \
 zsh-syntax-highlighting `#Now with syntax highlighting` \
 hexchat `#Irc Client` \
 libguestfs-tools `#Resize Vm Images and convert them` \
 ncdu `#Directory listing CLI tool. For a gui version take a look at "baobab"` \
+texlive texlive-latex texlive-xetex `#Latex packages `\
+texlive-collection-latex \
+texlive-collection-latexrecommended \
+texlive-xetex-def \
+texlive-collection-xetex
+
 ###
 # Remove some un-needed stuff
 ###
@@ -170,13 +163,38 @@ flowblade `#Sadly has really outdated mlt dependencies`
 
 
 ###
-# Enable some of the goodies, but not all
+# Enable some of the goodies, especially for laptop but not all
 # Its the users responsibility to choose and enable zsh, with oh-my-zsh for example
 # or set a more specific tuned profile
 ###
 
 sudo systemctl enable --now tuned
 sudo tuned-adm profile balanced
+
+# Create a profile called "laptop" with every suggestion done by PowerTop
+sudo powertop2tuned -n -e laptop --force
+
+# Activate laptop profile
+tuned-adm profile laptop
+
+# if errors you may need to install dmidecode
+# sudo dnf install python3-dmidecode -y
+
+# cat <<EOT >> /etc/tuned/laptop/tuned.conf
+
+## Autosuspend for all of your USB devices
+#[usb]
+#autosuspend = 1
+
+## Mechanical hard drives? No problem
+#[disk]
+#devices = sda
+
+## Let's kill your turbo boost. Less performance, but less power too!
+#[cpu]
+#no_turbo = 1
+
+#EOT
 
 #Performance:
 #sudo tuned-adm profile desktop
@@ -188,10 +206,17 @@ sudo tuned-adm profile balanced
 #sudo tuned-adm profile virtual-guest
 
 #Battery Saving:
-sudo tuned-adm profile powersave
+#sudo tuned-adm profile powersave
+
+# Manage Power zones
+sudo dnf install thermald
+systemctl enable thermald
+systemctl start thermald
 
 # Virtual Machines
 sudo systemctl enable --now libvirtd
+# Administer libvirt with regular user
+sudo usermod -aG libvirt $(whoami)
 
 # Management of local/remote system(s) - available via http://localhost:9090
 sudo systemctl enable --now cockpit.socket
@@ -276,11 +301,6 @@ fi
 sudo sed -i '0,/enabled=0/s/enabled=0/enabled=1/g' /etc/yum.repos.d/fedora-updates-modular.repo
 sudo sed -i '0,/enabled=0/s/enabled=0/enabled=1/g' /etc/yum.repos.d/fedora-modular.repo
 
-# Use lightdm instead of gdm
-sudo dnf install lightdm lightdm-gtk
-sudo systemctl disable gdm.service
-sudo systemctl enable lightdm.service
-
 # Enable ssh
 systemctl start sshd
 systemctl enable sshd
@@ -309,7 +329,11 @@ sway-debugsource \
 
 # Miscalleneous
 
+# ranger as default open folder
+xdg-mime default ranger.desktop inode/directory
+
 # don't forget to enable mouse goodies
-chsh zsh
+chsh -s $(which zsh) $USER
+
 #The user needs to reboot to apply all changes.
 echo "Please Reboot" && exit 0
