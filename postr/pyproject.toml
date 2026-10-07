@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "postr"
+version = "0.1.0"
+description = "Write-only poster for X, LinkedIn and rmpr.xyz short form"
+requires-python = ">=3.11"
+license = "MIT"
+# No PyPI dependencies: HTTP and OAuth are stdlib. The GUI needs PyGObject,
+# GTK 4 and libadwaita from the distro (python3-gobject, gtk4, libadwaita).
+dependencies = []
+
+[project.scripts]
+postr = "postr.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
