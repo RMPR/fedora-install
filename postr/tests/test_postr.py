@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from postr import config, core, http
-from postr.platforms import blog, linkedin, twitter
+from postr.platforms import blog, bluesky, linkedin, mastodon, twitter
 
 
 class FakeSecrets:
@@ -72,6 +72,72 @@ class LinkedInTest(unittest.TestCase):
         self.assertEqual(body["author"], "urn:li:person:abc")
         self.assertEqual(body["commentary"], r"hello \(world\)")
         self.assertEqual(req.call_args.kwargs["headers"]["X-Restli-Protocol-Version"], "2.0.0")
+
+
+class MastodonTest(unittest.TestCase):
+    def test_length(self):
+        self.assertEqual(mastodon.length("hi @alice@hostux.social see https://example.com/" + "a" * 50), 3 + 6 + 5 + 23)
+
+    def test_post(self):
+        cfg = json.loads(json.dumps(config.DEFAULTS))
+        resp = http.Response(200, '{"url": "https://hostux.social/@me/1"}')
+        with mock.patch.object(http, "request", return_value=resp) as req:
+            url = mastodon.post("hi", cfg, FakeSecrets(mastodon_access_token="t"))
+        self.assertEqual(url, "https://hostux.social/@me/1")
+        self.assertEqual(req.call_args.args, ("POST", "https://hostux.social/api/v1/statuses"))
+        self.assertEqual(req.call_args.kwargs["json_body"], {"status": "hi", "visibility": "public"})
+        self.assertIn("Idempotency-Key", req.call_args.kwargs["headers"])
+
+    def test_configurable_limit(self):
+        cfg = json.loads(json.dumps(config.DEFAULTS))
+        cfg["mastodon"]["max_characters"] = 1000
+        secrets = FakeSecrets(mastodon_access_token="t")
+        self.assertEqual(core.problems("x" * 900, ["mastodon"], cfg, secrets), {})
+
+
+class BlueskyTest(unittest.TestCase):
+    def test_length_counts_graphemes(self):
+        self.assertEqual(bluesky.length("héllo"), 5)
+        self.assertEqual(bluesky.length("e\u0301"), 1)
+        self.assertEqual(bluesky.length("👨\u200d👩\u200d👧!"), 2)
+
+    def test_facets_use_utf8_byte_offsets(self):
+        text = "Café → https://rmpr.xyz/short/. #rust @alice.bsky.social and @nobody.example"
+        resolve = {"alice.bsky.social": "did:plc:alice"}.get
+        got = {f["features"][0]["$type"].rsplit("#", 1)[1]: f for f in bluesky.facets(text, resolve)}
+        raw = text.encode()
+        link = got["link"]
+        self.assertEqual(link["features"][0]["uri"], "https://rmpr.xyz/short/")
+        self.assertEqual(raw[link["index"]["byteStart"]:link["index"]["byteEnd"]], b"https://rmpr.xyz/short/")
+        tag = got["tag"]
+        self.assertEqual(raw[tag["index"]["byteStart"]:tag["index"]["byteEnd"]], b"#rust")
+        self.assertEqual(tag["features"][0]["tag"], "rust")
+        mention = got["mention"]
+        self.assertEqual(raw[mention["index"]["byteStart"]:mention["index"]["byteEnd"]], b"@alice.bsky.social")
+        self.assertEqual(len(bluesky.facets(text, resolve)), 3)  # unresolvable handle stays plain
+
+    def test_no_hashtag_inside_url(self):
+        self.assertEqual([f["features"][0]["$type"] for f in bluesky.facets("https://a.b/c#frag")],
+                         ["app.bsky.richtext.facet#link"])
+
+    def test_post(self):
+        cfg = json.loads(json.dumps(config.DEFAULTS))
+        cfg["bluesky"]["handle"] = "@me.bsky.social"
+        responses = [
+            http.Response(200, '{"accessJwt": "jwt", "did": "did:plc:me", "handle": "me.bsky.social"}'),
+            http.Response(200, '{"uri": "at://did:plc:me/app.bsky.feed.post/3abc", "cid": "x"}'),
+        ]
+        with mock.patch.object(http, "request", side_effect=responses) as req:
+            url = bluesky.post("hello", cfg, FakeSecrets(bluesky_app_password="pw"))
+        self.assertEqual(url, "https://bsky.app/profile/me.bsky.social/post/3abc")
+        login, create = req.call_args_list
+        self.assertEqual(login.kwargs["json_body"], {"identifier": "me.bsky.social", "password": "pw"})
+        body = create.kwargs["json_body"]
+        self.assertEqual((body["repo"], body["collection"]), ("did:plc:me", "app.bsky.feed.post"))
+        self.assertEqual(body["record"]["text"], "hello")
+        self.assertNotIn("facets", body["record"])
+        self.assertTrue(body["record"]["createdAt"].endswith("Z"))
+        self.assertEqual(create.kwargs["headers"]["Authorization"], "Bearer jwt")
 
 
 class BlogTest(unittest.TestCase):

@@ -1,4 +1,4 @@
-"""GTK 4 / libadwaita window: a text box, a toggle per platform, a Post button.
+"""GTK 4 / libadwaita window: a text box, a checkbox per platform, a Post button.
 
 There is deliberately nothing to read here: no timeline, no notifications,
 no replies. Ctrl+Enter posts.
@@ -15,7 +15,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from . import APP_ID, __version__, config, core  # noqa: E402
-from .platforms import PLATFORMS, linkedin  # noqa: E402
+from .platforms import PLATFORMS, limit, linkedin  # noqa: E402
 
 CSS = """
 .postr-editor { font-size: 1.2em; background: transparent; }
@@ -28,13 +28,13 @@ DRAFT = config.STATE_DIR / "draft.md"
 
 class Window(Adw.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="postr", default_width=640, default_height=420)
+        super().__init__(application=app, title="postr", default_width=720, default_height=440)
         self.cfg = config.load()
         self.store = config.SecretStore()
-        self.toggles = {}
+        self.checks = {}
         self.counts = {}
         self._save_source = 0
-        self._auto_toggle = False  # set while postr itself flips toggles
+        self._auto_check = False  # set while postr itself flips checkboxes
 
         self.toasts = Adw.ToastOverlay()
         view = Adw.ToolbarView()
@@ -58,6 +58,11 @@ class Window(Adw.ApplicationWindow):
         self.results.add_css_class("postr-results")
 
         bar = Gtk.Box(spacing=6, margin_top=6, margin_bottom=12, margin_start=12, margin_end=12)
+        # One checkbox per platform; wraps onto more rows when the window is narrow.
+        where = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, hexpand=True,
+                            max_children_per_line=len(PLATFORMS), column_spacing=12, row_spacing=2,
+                            valign=Gtk.Align.CENTER)
+        where.update_property([Gtk.AccessibleProperty.LABEL], ["Where to post"])
         selected = set(self.cfg["ui"].get("targets", PLATFORMS))
         for name, p in PLATFORMS.items():
             count = Gtk.Label()
@@ -65,14 +70,14 @@ class Window(Adw.ApplicationWindow):
             box = Gtk.Box(spacing=6)
             box.append(Gtk.Label(label=p.LABEL))
             box.append(count)
-            toggle = Gtk.ToggleButton(child=box, active=name in selected, tooltip_text=f"Post to {p.LABEL}")
-            toggle.connect("toggled", self.on_targets_changed)
-            bar.append(toggle)
-            self.toggles[name], self.counts[name] = toggle, count
-        bar.append(Gtk.Box(hexpand=True))
+            check = Gtk.CheckButton(child=box, active=name in selected, tooltip_text=f"Post to {p.LABEL}")
+            check.connect("toggled", self.on_targets_changed)
+            where.append(check)
+            self.checks[name], self.counts[name] = check, count
+        bar.append(where)
         self.spinner = Gtk.Spinner()
         bar.append(self.spinner)
-        self.post_button = Gtk.Button(label="Post", tooltip_text="Post (Ctrl+Enter)")
+        self.post_button = Gtk.Button(label="Post", tooltip_text="Post (Ctrl+Enter)", valign=Gtk.Align.CENTER)
         self.post_button.add_css_class("suggested-action")
         self.post_button.connect("clicked", lambda *_: self.post())
         bar.append(self.post_button)
@@ -106,7 +111,7 @@ class Window(Adw.ApplicationWindow):
         return self.buffer.get_text(self.buffer.get_start_iter(), self.buffer.get_end_iter(), False)
 
     def targets(self):
-        return [n for n, t in self.toggles.items() if t.get_active()]
+        return [n for n, t in self.checks.items() if t.get_active()]
 
     def on_text_changed(self, *_):
         text = self.text
@@ -114,29 +119,29 @@ class Window(Adw.ApplicationWindow):
         for name, p in PLATFORMS.items():
             n = p.length(text)
             label = self.counts[name]
-            label.set_text(f"{n}/{p.LIMIT}" if p.LIMIT else str(n))
-            too_long = bool(p.LIMIT and n > p.LIMIT)
+            lim = limit(p, self.cfg)
+            label.set_text(f"{n}/{lim}" if lim else str(n))
+            too_long = bool(lim and n > lim)
             (label.add_css_class if too_long else label.remove_css_class)("error")
-            over |= too_long and self.toggles[name].get_active()
+            over |= too_long and self.checks[name].get_active()
         self.post_button.set_sensitive(bool(text.strip()) and bool(self.targets()) and not over)
         if not self._save_source:
             self._save_source = GLib.timeout_add(500, self.save_draft)
 
     def on_targets_changed(self, *_):
-        if not self._auto_toggle:
+        if not self._auto_check:
             self.cfg["ui"]["targets"] = self.targets()
             config.save(self.cfg)
         self.on_text_changed()
 
     def set_targets(self, names):
-        self._auto_toggle = True
-        for name, toggle in self.toggles.items():
+        self._auto_check = True
+        for name, toggle in self.checks.items():
             toggle.set_active(name in names)
-        self._auto_toggle = False
+        self._auto_check = False
 
     def save_draft(self):
         self._save_source = 0
-        self._auto_toggle = False  # set while postr itself flips toggles
         try:
             DRAFT.parent.mkdir(parents=True, exist_ok=True)
             if self.text.strip():
@@ -152,7 +157,7 @@ class Window(Adw.ApplicationWindow):
     def set_busy(self, busy):
         self.editor.set_editable(not busy)
         self.spinner.set_spinning(busy)
-        for t in self.toggles.values():
+        for t in self.checks.values():
             t.set_sensitive(not busy)
         if busy:
             self.post_button.set_sensitive(False)
@@ -229,6 +234,23 @@ class Preferences(Adw.PreferencesDialog):
         for key, title in (("twitter_api_key", "API key"), ("twitter_api_secret", "API key secret"),
                            ("twitter_access_token", "Access token"), ("twitter_access_secret", "Access token secret")):
             self.secret_row(g, key, title)
+        page.add(g)
+
+        g = Adw.PreferencesGroup(
+            title="Mastodon",
+            description="On your instance: Preferences → Development → New application, "
+                        "with only the write:statuses scope. Paste “Your access token”.",
+        )
+        self.setting_row(g, "mastodon", "instance", "Instance")
+        self.secret_row(g, "mastodon_access_token", "Access token")
+        page.add(g)
+
+        g = Adw.PreferencesGroup(
+            title="Bluesky",
+            description="Settings → Privacy and security → App passwords. Never your main password.",
+        )
+        self.setting_row(g, "bluesky", "handle", "Handle")
+        self.secret_row(g, "bluesky_app_password", "App password")
         page.add(g)
 
         port = self.cfg["linkedin"].get("redirect_port", 8723)
@@ -350,7 +372,7 @@ class App(Adw.Application):
         Adw.AboutDialog(
             application_name="postr", application_icon="document-send-symbolic", version=__version__,
             developer_name="Paul Mairo", license_type=Gtk.License.MIT_X11,
-            comments="Write-only posting to X, LinkedIn and rmpr.xyz.",
+            comments="Write-only posting to X, Mastodon, Bluesky, LinkedIn and rmpr.xyz.",
         ).present(self.props.active_window)
 
 

@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=postr
-GenericName=Post to X, LinkedIn and blog
+GenericName=Post to social networks and blog
 Comment=Write-only posting: compose, post, close
 Exec=postr
 Icon=document-send
 Terminal=false
 Categories=Network;Utility;GTK;
-Keywords=twitter;x;linkedin;blog;post;
+Keywords=twitter;x;mastodon;bluesky;linkedin;blog;post;
 StartupNotify=true

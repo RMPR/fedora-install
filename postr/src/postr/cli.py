@@ -5,10 +5,12 @@ import getpass
 import sys
 
 from . import config, core
-from .platforms import PLATFORMS, linkedin
+from .platforms import PLATFORMS, limit, linkedin
 
 # (section, key, prompt) for the non-secret settings `postr setup` asks about.
 SETTINGS = {
+    "mastodon": [("mastodon", "instance", "Mastodon instance URL")],
+    "bluesky": [("bluesky", "handle", "Bluesky handle (e.g. you.bsky.social)")],
     "linkedin": [("linkedin", "client_id", "LinkedIn client ID")],
     "blog": [
         ("blog", "repo", "Blog repository (owner/name)"),
@@ -21,6 +23,8 @@ SECRET_PROMPTS = {
     "twitter_api_secret": "X API key secret",
     "twitter_access_token": "X access token",
     "twitter_access_secret": "X access token secret",
+    "mastodon_access_token": "Mastodon access token (app with write:statuses)",
+    "bluesky_app_password": "Bluesky app password (not your account password)",
     "linkedin_client_secret": "LinkedIn client secret",
     "github_token": "GitHub fine-grained token (Contents: read/write on the blog repo)",
 }
@@ -40,8 +44,8 @@ def cmd_post(args, cfg, store):
         sys.exit(2)
     if args.dry_run:
         for t in targets:
-            p = PLATFORMS[t]
-            print(f"{p.LABEL}: {p.length(text)}" + (f"/{p.LIMIT}" if p.LIMIT else "") + " characters, ok")
+            p, lim = PLATFORMS[t], limit(PLATFORMS[t], cfg)
+            print(f"{p.LABEL}: {p.length(text)}" + (f"/{lim}" if lim else "") + " characters, ok")
         return
     failed = False
     for r in core.publish(text, targets, cfg, secrets):
@@ -88,7 +92,7 @@ def cmd_status(args, cfg, store):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="postr", description="Write-only posting to X, LinkedIn and the blog.")
+    parser = argparse.ArgumentParser(prog="postr", description="Write-only posting to X, Mastodon, Bluesky, LinkedIn and the blog.")
     sub = parser.add_subparsers(dest="cmd")
     p = sub.add_parser("post", help="post text (or stdin with '-')")
     p.add_argument("text", nargs="?")

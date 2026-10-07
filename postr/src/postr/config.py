@@ -39,11 +39,15 @@ DEFAULTS = {
         "redirect_port": 8723,
     },
     "twitter": {},
-    "ui": {"targets": ["twitter", "linkedin", "blog"]},
+    "mastodon": {"instance": "https://hostux.social", "visibility": "public", "max_characters": 500},
+    "bluesky": {"handle": "", "service": "https://bsky.social"},
+    "ui": {"targets": ["twitter", "mastodon", "bluesky", "linkedin", "blog"]},
 }
 
 SECRETS = {
     "twitter": ["twitter_api_key", "twitter_api_secret", "twitter_access_token", "twitter_access_secret"],
+    "mastodon": ["mastodon_access_token"],
+    "bluesky": ["bluesky_app_password"],
     "linkedin": ["linkedin_client_secret", "linkedin_access_token"],
     "blog": ["github_token"],
 }

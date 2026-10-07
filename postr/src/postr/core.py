@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from . import config
 from .http import HTTPError
-from .platforms import PLATFORMS
+from .platforms import PLATFORMS, limit
 
 
 @dataclass
@@ -41,8 +41,9 @@ def problems(text, targets, cfg, secrets):
     for name in targets:
         p = PLATFORMS[name]
         issues = list(p.missing(cfg, secrets))
-        if p.LIMIT and p.length(text) > p.LIMIT:
-            issues.append(f"{p.length(text) - p.LIMIT} characters over the limit")
+        lim = limit(p, cfg)
+        if lim and p.length(text) > lim:
+            issues.append(f"{p.length(text) - lim} characters over the limit")
         if issues:
             out[name] = issues
     return out
